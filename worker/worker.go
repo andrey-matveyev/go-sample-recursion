@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"main/queue"
 	"os"
@@ -64,7 +65,7 @@ func readDir(name string) ([]os.DirEntry, error) {
 	return dirs, err
 }
 
-func Start(path string) chan *queue.Task {
+func Start1(path string) chan *queue.Task {
 	out := make(chan *queue.Task)
 	recCount.Add(1)
 	go func() {
@@ -74,6 +75,40 @@ func Start(path string) chan *queue.Task {
 		recCount.Wait()
 		close(out)
 	}()
+	return out
+}
+
+func Start(ctx context.Context, path string) chan *queue.Task {
+	out := make(chan *queue.Task)
+
+	recCount.Add(1)
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case out <- &queue.Task{Size: 0, Path: path}:
+		}
+	}()
+
+	go func() {
+		defer close(out)
+
+		doneWaiting := make(chan struct{})
+		go func() {
+			recCount.Wait()
+			close(doneWaiting)
+		}()
+
+		select {
+		case <-ctx.Done():
+			fmt.Printf("Start: Context cancelled, stopping wait for recCount: %v\n", ctx.Err())
+			return
+		case <-doneWaiting:
+			fmt.Println("Start: All recursive tasks completed naturally.")
+			return
+		}
+	}()
+
 	return out
 }
 

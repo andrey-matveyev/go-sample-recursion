@@ -13,7 +13,7 @@ func main() {
 	defer cancel()
 
 	// rec - the channel through which worker.Start will provide initial and "recursive" tasks
-	rec := worker.Start(".") // Start traversal from the current directory
+	rec := worker.Start(ctx, ".") // Start traversal from the current directory
 
 	// inp - the channel from which workers will read. It is the output of your queue,
 	// which, in turn, reads tasks from the 'rec' channel.
