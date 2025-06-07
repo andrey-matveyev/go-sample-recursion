@@ -8,20 +8,23 @@ import (
 	"sync"
 )
 
-var foldersCount sync.WaitGroup
+var recCount sync.WaitGroup
 
-type worker interface {
-	run(inp, out chan *queue.Task)
+type Worker interface {
+	run(inp, out, rec chan *queue.Task)
+}
+
+func NewWorker() Worker {
+	return &fetcher{}
 }
 
 type fetcher struct {
-	outFolder chan *queue.Task
 }
 
-func (item fetcher) run(inp, out chan *queue.Task) {
+func (item fetcher) run(inp, out, rec chan *queue.Task) {
 	for currentTask := range inp {
 		func() {
-			defer foldersCount.Done()
+			defer recCount.Done()
 
 			objects, err := readDir(currentTask.Path) // custom's changed os.ReadDir
 			if err != nil {
@@ -33,8 +36,8 @@ func (item fetcher) run(inp, out chan *queue.Task) {
 				objectPath := filepath.Join(currentTask.Path, object.Name())
 
 				if object.IsDir() {
-					foldersCount.Add(1)
-					item.outFolder <- &queue.Task{Size: 0, Path: objectPath}
+					recCount.Add(1)
+					rec <- &queue.Task{Size: 0, Path: objectPath}
 					continue
 				}
 
@@ -49,7 +52,7 @@ func (item fetcher) run(inp, out chan *queue.Task) {
 	}
 }
 
-// Implementation os.ReadDir withot slices.SortFunc of entries
+// Implementation os.ReadDir without slices.SortFunc of entries
 func readDir(name string) ([]os.DirEntry, error) {
 	file, err := os.Open(name)
 	if err != nil {
@@ -59,4 +62,34 @@ func readDir(name string) ([]os.DirEntry, error) {
 
 	dirs, err := file.ReadDir(-1)
 	return dirs, err
+}
+
+func Start(path string) chan *queue.Task {
+	out := make(chan *queue.Task)
+	recCount.Add(1)
+	go func() {
+		out <- &queue.Task{Size: 0, Path: path}
+	}()
+	go func() {
+		recCount.Wait()
+		close(out)
+	}()
+	return out
+}
+
+func RunPool(runWorker Worker, amt int, inp, out, rec chan *queue.Task) {
+	var workers sync.WaitGroup
+
+	for range amt {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			runWorker.run(inp, out, rec)
+		}()
+	}
+
+	go func(currentWorker Worker, outChan chan *queue.Task) {
+		workers.Wait()
+		close(outChan)
+	}(runWorker, out)
 }
