@@ -88,6 +88,6 @@ func outProcess(ctx context.Context, queue *queue, out chan *Task) {
 }
 
 type Task struct {
-	ID   int
-	Data string
+	Size int64
+	Path string
 }
