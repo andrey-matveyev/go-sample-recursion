@@ -8,15 +8,14 @@ import (
 )
 
 func main() {
-	// Initialize context to manage the entire pipeline
-	mainCtx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	out := make(chan *queue.Task)
 
 	rec := worker.Start(".")
 
-	inp := queue.OutQueue(mainCtx, queue.InpQueue(rec))
+	inp := queue.OutQueue(ctx, queue.InpQueue(rec))
 
 	worker.RunPool(worker.NewWorker(), 2, inp, out, rec)
 
