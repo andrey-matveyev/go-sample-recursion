@@ -32,8 +32,8 @@ func TestNewQueue(t *testing.T) {
 // TestQueuePushPop verifies that push and pop operations are correct.
 func TestQueuePushPop(t *testing.T) {
 	q := newQueue()
-	task1 := &Task{ID: 1, Data: "Task 1"}
-	task2 := &Task{ID: 2, Data: "Task 2"}
+	task1 := &Task{Size: 1, Path: "Task 1"}
+	task2 := &Task{Size: 2, Path: "Task 2"}
 
 	// Check pop from empty queue
 	if poppedTask := q.pop(); poppedTask != nil {
@@ -48,7 +48,7 @@ func TestQueuePushPop(t *testing.T) {
 
 	// Pop task1
 	poppedTask := q.pop()
-	if poppedTask == nil || poppedTask.ID != 1 {
+	if poppedTask == nil || poppedTask.Size != 1 {
 		t.Errorf("Pop returned %v, expected task1", poppedTask)
 	}
 	if q.queueTasks.Len() != 0 {
@@ -63,11 +63,11 @@ func TestQueuePushPop(t *testing.T) {
 	}
 
 	poppedTask = q.pop()
-	if poppedTask == nil || poppedTask.ID != 1 {
+	if poppedTask == nil || poppedTask.Size != 1 {
 		t.Errorf("First pop returned %v, expected task1", poppedTask)
 	}
 	poppedTask = q.pop()
-	if poppedTask == nil || poppedTask.ID != 2 {
+	if poppedTask == nil || poppedTask.Size != 2 {
 		t.Errorf("Second pop returned %v, expected task2", poppedTask)
 	}
 	if q.queueTasks.Len() != 0 {
@@ -82,7 +82,7 @@ func TestInpProcessBasicFlow(t *testing.T) {
 
 	// We send several tasks
 	for i := 0; i < 3; i++ {
-		inp <- &Task{ID: i}
+		inp <- &Task{Size: int64(i)}
 	}
 	time.Sleep(10 * time.Millisecond) // Give time to the inpProcess goroutine to process tasks
 
@@ -116,8 +116,8 @@ func TestOutProcessBasicFlow(t *testing.T) {
 	out := OutQueue(ctx, q) // outProcess starts here
 
 	// Put tasks directly into the queue (simulate inpProcess)
-	task1 := &Task{ID: 1}
-	task2 := &Task{ID: 2}
+	task1 := &Task{Size: 1}
+	task2 := &Task{Size: 2}
 	q.push(task1)
 	q.push(task2)
 
@@ -148,7 +148,7 @@ func TestOutProcessBasicFlow(t *testing.T) {
 	if len(receivedTasks) != 2 {
 		t.Errorf("Expected 2 tasks, got %d", len(receivedTasks))
 	}
-	if receivedTasks[0].ID != 1 || receivedTasks[1].ID != 2 {
+	if receivedTasks[0].Size != 1 || receivedTasks[1].Size != 2 {
 		t.Errorf("Tasks received in wrong order: %v", receivedTasks)
 	}
 
@@ -176,7 +176,7 @@ func TestPipelineCompletion(t *testing.T) {
 
 	expectedTasks := 5
 	for i := 0; i < expectedTasks; i++ {
-		inp <- &Task{ID: i, Data: fmt.Sprintf("Data %d", i)}
+		inp <- &Task{Size: int64(i), Path: fmt.Sprintf("Data %d", i)}
 	}
 	close(inp) // Close the input channel
 
@@ -225,7 +225,7 @@ func TestPipelineCancellation(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		for i := 0; i < 100; i++ { // We send a lot of tasks
-			inp <- &Task{ID: i}
+			inp <- &Task{Size: int64(i)}
 			time.Sleep(1 * time.Millisecond)
 		}
 		wg.Done()
@@ -251,7 +251,7 @@ func TestPipelineCancellation(t *testing.T) {
 	// Make sure inpProcess keeps running until inp is closed
 	// (even though outProcess has already finished)
 	// Add another task and make sure it gets into the queue
-	inp <- &Task{ID: 999}
+	inp <- &Task{Size: 999}
 	time.Sleep(10 * time.Millisecond)
 	// We can't check how many tasks have been processed because out is closed.
 	// It's important that outProcess _has completed_.
@@ -293,7 +293,7 @@ func TestSlowConsumerFastProducer(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < numTasks; i++ {
-			inp <- &Task{ID: i, Data: fmt.Sprintf("Data %d", i)}
+			inp <- &Task{Size: int64(i), Path: fmt.Sprintf("Data %d", i)}
 			time.Sleep(5 * time.Millisecond) // Very fast
 		}
 		close(inp)
