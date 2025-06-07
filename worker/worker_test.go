@@ -2,11 +2,14 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"os"
-	"path/filepath" 
+	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
-	"main/queue" 
+	"main/queue"
 )
 
 // createTestDir creates a temporary test directory structure and files
@@ -182,3 +185,79 @@ func TestFullPipelineTraversal(t *testing.T) {
 	})
 }
 
+func TestPipelineCancellation(t *testing.T) {
+	// Create a temporary directory for the test
+	testDir := t.TempDir()
+	// Create a deeper structure for cancellation to occur mid-traversal
+	testRootPath := filepath.Join(testDir, "root_dir")
+	createTestDir(t, testRootPath) // Create the initial structure
+
+	// Add a few more levels and files to increase the likelihood of interruption
+	currentPath := testRootPath
+	for i := 0; i < 3; i++ { // 3 additional levels of nesting
+		currentPath = filepath.Join(currentPath, fmt.Sprintf("level_%d", i))
+		if err := os.MkdirAll(currentPath, 0755); err != nil {
+			t.Fatalf("Failed to create nested dir: %v", err)
+		}
+		for j := 0; j < 5; j++ { // 5 files at each level
+			if err := os.WriteFile(filepath.Join(currentPath, fmt.Sprintf("file_%d.txt", j)), []byte(fmt.Sprintf("content_%d_%d", i, j)), 0644); err != nil {
+				t.Fatalf("Failed to create file: %v", err)
+			}
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel the context after a short period.
+	// The timing might need adjustment depending on your system's speed.
+	cancelAfter := 50 * time.Millisecond // 50 milliseconds
+	go func() {
+		time.Sleep(cancelAfter)
+		cancel() // Cancel the context
+	}()
+
+	// Start the pipeline exactly as in main.go, but pass the cancellable context
+	rec := Start(ctx, testRootPath)
+	inp := queue.OutQueue(ctx, queue.InpQueue(rec))
+	out := make(chan *queue.Task)
+	RunPool(NewWorker(), 2, inp, out, rec) // Use 2 workers
+
+	// Collect results until the 'out' channel closes
+	collectedFiles := make(map[string]int64)
+	var collectWg sync.WaitGroup
+	collectWg.Add(1)
+	go func() {
+		defer collectWg.Done()
+		for fileTask := range out {
+			collectedFiles[fileTask.Path] = fileTask.Size
+		}
+	}()
+
+	// Wait for the file collector to finish (the 'out' channel closes)
+	collectWg.Wait()
+
+	// Assertions for context cancellation:
+
+	// 1. Ensure that the context was indeed cancelled.
+	select {
+	case <-ctx.Done():
+		// Success: context was cancelled.
+		t.Logf("Context was successfully cancelled with error: %v", ctx.Err())
+	case <-time.After(cancelAfter + 100*time.Millisecond): // Give some buffer time
+		t.Fatal("Context was not cancelled as expected within the timeout.")
+	}
+
+	// 2. Check that the pipeline did not hang and the 'out' channel closed correctly.
+	//    The fact that the `for fileTask := range out` loop completed already guarantees this.
+	//    If there were a deadlock, the test would hang (and Go's test timeout would trigger).
+	//    The number of collected files should be less than the total expected,
+	//    unless the cancellation occurred too late.
+	t.Logf("Collected %d files during cancelled traversal.", len(collectedFiles))
+
+	// More complex checks could be added:
+	// - That there were no console errors other than the expected "context cancelled".
+	// - That all goroutines have exited (difficult to check directly).
+
+	// The main point: the test should complete without hanging, which means the pipeline
+	// shut down correctly. If `recCount.Wait()` were blocking, the test would hang.
+}
