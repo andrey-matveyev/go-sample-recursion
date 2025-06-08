@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"main/queue"   // Import your queue package
+	"main/queue"  // Import your queue package
 	"main/worker" // Import your worker package
 )
 
@@ -13,7 +13,7 @@ func main() {
 	defer cancel()
 
 	// rec - the channel through which worker.Start will provide initial and "recursive" tasks
-	rec := worker.Start(ctx, ".") // Start traversal from the current directory
+	rec := worker.Start(".") // Start traversal from the current directory
 
 	// inp - the channel from which workers will read. It is the output of your queue,
 	// which, in turn, reads tasks from the 'rec' channel.

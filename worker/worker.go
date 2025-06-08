@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"context"
 	"fmt"
 	"main/queue"
 	"os"
@@ -10,6 +9,7 @@ import (
 )
 
 var recCount sync.WaitGroup
+var recClose = sync.NewCond(&sync.Mutex{})
 
 type Worker interface {
 	run(inp, out, rec chan *queue.Task)
@@ -65,57 +65,55 @@ func readDir(name string) ([]os.DirEntry, error) {
 	return dirs, err
 }
 
-func Start1(path string) chan *queue.Task {
-	out := make(chan *queue.Task)
+func Start(path string) chan *queue.Task {
+	rec := make(chan *queue.Task)
+
+	// send first task to "rec" Chan
 	recCount.Add(1)
 	go func() {
-		out <- &queue.Task{Size: 0, Path: path}
+		rec <- &queue.Task{Size: 0, Path: path}
 	}()
+
+	// Function "Start" - owner of "rec" Chan
+	// "Start" is responsible for closing this channel.
+	// The channel should be closed if one of two events happens:
+	// 1. All tasks are completed "recCount.Wait() - unlocked"
+	// 2. The context is canceled "all workers was stoped"
+
+	// 1.
+	// We wait for the first event and send a signal about it
 	go func() {
 		recCount.Wait()
-		close(out)
+
+		recClose.L.Lock()
+		defer recClose.L.Unlock()
+
+		recClose.Signal()
 	}()
-	return out
+
+	// 2.
+	// The second event can occur in the worker pool.
+	// Since workers are also senders of data to the "rec" channel,
+	// they also send a signal about the completion of their work
+	// (when the context is canceled, for example)
+
+	// Here we wait until one of two events happens.
+	go func() {
+		recClose.L.Lock()
+		defer recClose.L.Unlock()
+
+		recClose.Wait()
+		close(rec)
+	}()
+
+	return rec
 }
 
-func Start(ctx context.Context, path string) chan *queue.Task {
-	out := make(chan *queue.Task)
-
-	recCount.Add(1)
-	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		case out <- &queue.Task{Size: 0, Path: path}:
-		}
-	}()
-
-	go func() {
-		defer close(out)
-
-		doneWaiting := make(chan struct{})
-		go func() {
-			recCount.Wait()
-			close(doneWaiting)
-		}()
-
-		select {
-		case <-ctx.Done():
-			fmt.Printf("Start: Context cancelled, stopping wait for recCount: %v\n", ctx.Err())
-			return
-		case <-doneWaiting:
-			fmt.Println("Start: All recursive tasks completed naturally.")
-			return
-		}
-	}()
-
-	return out
-}
-
+// RunPool starts a pool of workers
 func RunPool(runWorker Worker, amt int, inp, out, rec chan *queue.Task) {
-	var workers sync.WaitGroup
+	var workers sync.WaitGroup // WaitGroup to track the worker goroutines themselves
 
-	for range amt {
+	for range amt { // Create 'amt' workers
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
@@ -123,8 +121,17 @@ func RunPool(runWorker Worker, amt int, inp, out, rec chan *queue.Task) {
 		}()
 	}
 
+	// This goroutine waiting for all workers to complete and closing the main output channel
 	go func(currentWorker Worker, outChan chan *queue.Task) {
 		workers.Wait()
 		close(outChan)
+
+		// 2.
+		// For function "Start" (owner of "rec" Chan) we send signal about second event
+		// (when workers are complete or the context is canceled and "rec" Chan can be closed)
+		recClose.L.Lock()
+		defer recClose.L.Unlock()
+
+		recClose.Signal()
 	}(runWorker, out)
 }

@@ -82,7 +82,7 @@ func TestFullPipelineTraversal(t *testing.T) {
 	// Start the pipeline:
 
 	// rec - the channel through which worker.Start will provide initial and "recursive" tasks
-	rec := Start(ctx, testRootPath) // Start traversal from our test root directory
+	rec := Start(testRootPath) // Start traversal from our test root directory
 
 	// inp - the channel from which workers will read tasks. It is the output of your queue,
 	// which, in turn, reads tasks from the 'rec' channel.
@@ -144,7 +144,7 @@ func TestFullPipelineTraversal(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		recEmpty := Start(ctx, emptyPath)
+		recEmpty := Start(emptyPath)
 		inpEmpty := queue.OutQueue(ctx, queue.InpQueue(recEmpty))
 		outEmpty := make(chan *queue.Task)
 		RunPool(NewWorker(), 1, inpEmpty, outEmpty, recEmpty) // 1 worker for simplicity
@@ -166,7 +166,7 @@ func TestFullPipelineTraversal(t *testing.T) {
 		nonExistentPath := filepath.Join(t.TempDir(), "definitely_not_exist") // Guaranteed non-existent path
 
 		// The Start function will still add 1 to recCount and send the task
-		recNonExistent := Start(ctx, nonExistentPath)
+		recNonExistent := Start(nonExistentPath)
 		inpNonExistent := queue.OutQueue(ctx, queue.InpQueue(recNonExistent))
 		outNonExistent := make(chan *queue.Task)
 		RunPool(NewWorker(), 1, inpNonExistent, outNonExistent, recNonExistent)
@@ -210,14 +210,14 @@ func TestPipelineCancellation(t *testing.T) {
 
 	// Cancel the context after a short period.
 	// The timing might need adjustment depending on your system's speed.
-	cancelAfter := 50 * time.Millisecond // 50 milliseconds
+	cancelAfter := 1 * time.Millisecond // 50 milliseconds
 	go func() {
 		time.Sleep(cancelAfter)
 		cancel() // Cancel the context
 	}()
 
 	// Start the pipeline exactly as in main.go, but pass the cancellable context
-	rec := Start(ctx, testRootPath)
+	rec := Start(testRootPath)
 	inp := queue.OutQueue(ctx, queue.InpQueue(rec))
 	out := make(chan *queue.Task)
 	RunPool(NewWorker(), 2, inp, out, rec) // Use 2 workers
@@ -254,7 +254,7 @@ func TestPipelineCancellation(t *testing.T) {
 	//    unless the cancellation occurred too late.
 	t.Logf("Collected %d files during cancelled traversal.", len(collectedFiles))
 
-	// More complex checks could be added:
+	// TODO: More complex checks could be added:
 	// - That there were no console errors other than the expected "context cancelled".
 	// - That all goroutines have exited (difficult to check directly).
 
