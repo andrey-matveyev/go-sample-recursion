@@ -83,7 +83,7 @@ func Start(path string) chan *queue.Task {
 	// 1.
 	// We wait for the first event and send a signal about it
 	go func() {
-		recCount.Wait()
+		recCount.Wait() 
 
 		recClose.L.Lock()
 		defer recClose.L.Unlock()
