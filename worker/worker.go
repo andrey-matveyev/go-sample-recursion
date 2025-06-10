@@ -22,7 +22,7 @@ func NewWorker() Worker {
 type fetcher struct {
 }
 
-func (item fetcher) run(inp, out, rec chan *queue.Task) {
+func (item *fetcher) run(inp, out, rec chan *queue.Task) {
 	for currentTask := range inp {
 		func() {
 			defer recCount.Done()
